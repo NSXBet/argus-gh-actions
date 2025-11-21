@@ -57,14 +57,12 @@ runs:
     - name: Build and push with Bake
       if: inputs.use-bake == 'true'
       uses: docker/bake-action@v5
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+        GHA_PAT: ${{ inputs.gha-pat }}
       with:
         targets: ${{ inputs.image }}
         push: true
-        set: |
-          VERSION=${{ steps.version.outputs.version }}
-          GHA_PAT=${{ inputs.gha-pat }}
-          *.args.VERSION=${{ steps.version.outputs.version }}
-          *.args.GHA_PAT=${{ inputs.gha-pat }}
 
     - name: Build and push standard
       if: inputs.use-bake == 'false'
