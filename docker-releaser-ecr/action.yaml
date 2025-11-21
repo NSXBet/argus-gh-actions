@@ -1,15 +1,30 @@
 name: 'Docker Releaser for ECR'
-description: 'Create git tag and GitHub release for Docker image'
+description: 'Build and push multi-arch Docker image to AWS ECR with GitHub release'
 author: 'NSXBet'
 
 inputs:
   image:
     description: 'Image name (e.g., "argus-api")'
     required: true
+  use-bake:
+    description: 'Use Docker Bake (targets must match image name)'
+    required: false
+    default: 'false'
   ecr-registry:
     description: 'ECR registry URL'
     required: false
     default: '492684252576.dkr.ecr.us-east-1.amazonaws.com'
+  aws-region:
+    description: 'AWS region'
+    required: false
+    default: 'us-east-1'
+  role-to-assume:
+    description: 'AWS IAM Role to assume'
+    required: false
+    default: 'arn:aws:iam::492684252576:role/GithubEcr'
+  gha-pat:
+    description: 'GitHub PAT for private repos'
+    required: false
   gh-token:
     description: 'GitHub token for releases'
     required: true
@@ -23,6 +38,47 @@ runs:
       run: |
         VERSION=$(cat VERSION | tr -d '\n')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Configure AWS Credentials
+      uses: nsx-actions/aws-actions_configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Login to ECR
+      uses: nsx-actions/aws-actions_amazon-ecr-login@v2
+
+    - name: Build and push with Bake
+      if: inputs.use-bake == 'true'
+      uses: docker/bake-action@v5
+      with:
+        targets: ${{ inputs.image }}
+        push: true
+        set: |
+          *.args.VERSION=${{ steps.version.outputs.version }}
+          *.args.GHA_PAT=${{ inputs.gha-pat }}
+
+    - name: Build and push standard
+      if: inputs.use-bake == 'false'
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: |
+          ${{ inputs.ecr-registry }}/${{ inputs.image }}:${{ steps.version.outputs.version }}
+          ${{ inputs.ecr-registry }}/${{ inputs.image }}:latest
+        build-args: |
+          VERSION=${{ steps.version.outputs.version }}
+          GHA_PAT=${{ inputs.gha-pat }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Create git tag
       shell: bash
